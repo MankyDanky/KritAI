@@ -78,10 +78,6 @@ class ArtGitDocker(DockWidget):
         # Version action buttons
         buttonLayout = QHBoxLayout()
         
-        viewButton = QPushButton("View Version")
-        viewButton.clicked.connect(self.viewSelectedVersion)
-        buttonLayout.addWidget(viewButton)
-        
         restoreButton = QPushButton("Restore Version")
         restoreButton.clicked.connect(self.restoreSelectedVersion)
         buttonLayout.addWidget(restoreButton)
@@ -379,35 +375,6 @@ class ArtGitDocker(DockWidget):
                     
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to restore version: {str(e)}")
-    
-    def viewSelectedVersion(self):
-        """View the selected version in a new window without affecting current document"""
-        item = self.historyList.currentItem()
-        if item is None:
-            QMessageBox.warning(self, "Warning", "Please select a version to view.")
-            return
-        
-        versionData = item.data(Qt.UserRole)
-        if versionData is None:
-            return
-        
-        versionsDir = self.getVersionsDir()
-        if versionsDir is None:
-            QMessageBox.warning(self, "Error", "Could not access versions directory.")
-            return
-        
-        versionPath = os.path.join(versionsDir, versionData["filename"])
-        if not os.path.exists(versionPath):
-            QMessageBox.warning(self, "Error", f"Version file not found: {versionData['filename']}")
-            return
-        
-        try:
-            # Open the version file in a new window
-            Krita.instance().openDocument(versionPath)
-            QMessageBox.information(self, "Version Opened", 
-                                  f"Opened version for viewing:\n{versionData['message']}\n({versionData['display_time']})\n\nThis is a separate copy - changes won't affect your main document.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open version: {str(e)}")
     
     def restoreSelectedVersion(self):
         """Restore the selected version to the current document"""
