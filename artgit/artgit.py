@@ -252,20 +252,45 @@ class ArtGitDocker(DockWidget):
                 # Get current document path
                 currentDocPath = currentDoc.fileName()
                 
-                # Close the current document
-                currentDoc.close()
+                # Load the version document temporarily
+                versionDoc = Krita.instance().openDocument(versionPath)
+                if not versionDoc:
+                    QMessageBox.critical(self, "Error", "Failed to load the version file.")
+                    return
                 
-                # Copy the version file to replace the current document
-                shutil.copy2(versionPath, currentDocPath)
+                # Get all the nodes (layers) from the version document
+                versionRootNode = versionDoc.rootNode()
                 
-                # Reopen the document (now restored to the previous version)
-                restoredDoc = Krita.instance().openDocument(currentDocPath)
+                # Clear all nodes from current document
+                currentRootNode = currentDoc.rootNode()
+                for child in currentRootNode.childNodes():
+                    child.remove()
                 
-                if restoredDoc:
-                    QMessageBox.information(self, "Success", 
-                                          f"Document restored to version:\n{versionData['message']}\n({versionData['display_time']})")
-                else:
-                    QMessageBox.critical(self, "Error", "Failed to reopen the restored document.")
+                # Copy all nodes from version to current document
+                for child in versionRootNode.childNodes():
+                    # Clone the node and add it to current document
+                    clonedNode = child.clone()
+                    currentRootNode.addChildNode(clonedNode, None)
+                
+                currentDoc.setResolution(int(versionDoc.xRes()))
+                
+                currentDoc.resizeImage(0, 0, versionDoc.width(), versionDoc.height())
+                    
+               
+                
+                currentDoc.setColorSpace(versionDoc.colorModel(), versionDoc.colorDepth(), versionDoc.colorProfile())
+                
+                # Close the temporary version document
+                versionDoc.close()
+                
+                # Refresh the current document view
+                currentDoc.refreshProjection()
+                
+                # Save the restored document
+                currentDoc.save()
+                
+                QMessageBox.information(self, "Success", 
+                                      f"Document restored to version:\n{versionData['message']}\n({versionData['display_time']})")
                     
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to restore version: {str(e)}")
