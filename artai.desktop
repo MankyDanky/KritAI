@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=Krita/PythonPlugin
+X-KDE-Library=artai
+X-Python-2-Compatible=false
+X-Krita-Manual=Manual.html
+Name=ArtAI
+Name[en_US]=ArtAI
+Comment=AI Image Generation Docker for Krita using DALL-E
+Comment[en_US]=AI Image Generation Docker for Krita using DALL-E
