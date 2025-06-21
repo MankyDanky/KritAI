@@ -21,6 +21,32 @@ class ArtGitDocker(DockWidget):
         titleLabel.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
         mainWidget.layout().addWidget(titleLabel)
         
+        # Branch management section
+        branchGroupBox = QGroupBox("Branch Management")
+        branchLayout = QVBoxLayout()
+        branchGroupBox.setLayout(branchLayout)
+        
+        # Current branch dropdown
+        branchSelectionLayout = QHBoxLayout()
+        branchSelectionLayout.addWidget(QLabel("Current Branch:"))
+        self.branchComboBox = QComboBox()
+        self.branchComboBox.currentTextChanged.connect(self.onBranchChanged)
+        branchSelectionLayout.addWidget(self.branchComboBox)
+        branchLayout.addLayout(branchSelectionLayout)
+        
+        # New branch creation
+        newBranchLayout = QHBoxLayout()
+        self.newBranchEdit = QLineEdit()
+        self.newBranchEdit.setPlaceholderText("Enter new branch name...")
+        newBranchLayout.addWidget(self.newBranchEdit)
+        
+        createBranchButton = QPushButton("Create Branch")
+        createBranchButton.clicked.connect(self.createNewBranch)
+        newBranchLayout.addWidget(createBranchButton)
+        branchLayout.addLayout(newBranchLayout)
+        
+        mainWidget.layout().addWidget(branchGroupBox)
+        
         # Commit section
         commitGroupBox = QGroupBox("Create New Version")
         commitLayout = QVBoxLayout()
@@ -68,6 +94,10 @@ class ArtGitDocker(DockWidget):
         
         mainWidget.layout().addWidget(historyGroupBox)
         
+        # Initialize branch system
+        self.currentBranch = "main"  # Default branch
+        self.loadBranches()
+        
         # Load history on startup
         self.refreshHistory()
     
@@ -103,16 +133,50 @@ class ArtGitDocker(DockWidget):
         return os.path.join(versionsDir, "versions.json")
     
     def loadVersionsData(self):
-        """Load versions data from JSON file"""
+        """Load versions data from JSON file with branch support"""
         jsonPath = self.getVersionsJsonPath()
         if jsonPath is None or not os.path.exists(jsonPath):
-            return []
+            # Return default structure with main branch
+            return {
+                "branches": ["main"],
+                "current_branch": "main",
+                "commits": {
+                    "main": []
+                }
+            }
         
         try:
             with open(jsonPath, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                
+            # Convert old format to new format if needed
+            if isinstance(data, list):
+                # Old format: just a list of commits
+                return {
+                    "branches": ["main"],
+                    "current_branch": "main", 
+                    "commits": {
+                        "main": data
+                    }
+                }
+            
+            # Ensure required keys exist
+            if "branches" not in data:
+                data["branches"] = ["main"]
+            if "current_branch" not in data:
+                data["current_branch"] = "main"
+            if "commits" not in data:
+                data["commits"] = {"main": []}
+            
+            return data
         except:
-            return []
+            return {
+                "branches": ["main"],
+                "current_branch": "main",
+                "commits": {
+                    "main": []
+                }
+            }
     
     def saveVersionsData(self, data):
         """Save versions data to JSON file"""
@@ -168,18 +232,23 @@ class ArtGitDocker(DockWidget):
             shutil.copy2(docPath, versionPath)
             
             # Update versions data
-            versionsData = self.loadVersionsData()
+            data = self.loadVersionsData()
             versionInfo = {
                 "id": versionId,
                 "message": commitMessage,
                 "timestamp": timestamp.isoformat(),
                 "filename": versionFileName,
-                "display_time": timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                "display_time": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "branch": self.currentBranch
             }
-            versionsData.append(versionInfo)
+            
+            # Add commit to current branch
+            if self.currentBranch not in data["commits"]:
+                data["commits"][self.currentBranch] = []
+            data["commits"][self.currentBranch].append(versionInfo)
             
             # Save versions data
-            self.saveVersionsData(versionsData)
+            self.saveVersionsData(data)
             
             # Clear commit message and refresh history
             self.commitMessageEdit.clear()
@@ -191,20 +260,22 @@ class ArtGitDocker(DockWidget):
             QMessageBox.critical(self, "Error", f"Failed to commit version: {str(e)}")
     
     def refreshHistory(self):
-        """Refresh the version history list"""
+        """Refresh the version history list for current branch"""
         self.historyList.clear()
         
-        versionsData = self.loadVersionsData()
-        if not versionsData:
-            item = QListWidgetItem("No versions found. Create your first commit!")
+        data = self.loadVersionsData()
+        branchCommits = data["commits"].get(self.currentBranch, [])
+        
+        if not branchCommits:
+            item = QListWidgetItem(f"No commits in '{self.currentBranch}' branch. Create your first commit!")
             item.setData(Qt.UserRole, None)
             self.historyList.addItem(item)
             return
         
         # Sort by timestamp (newest first)
-        versionsData.sort(key=lambda x: x["timestamp"], reverse=True)
+        branchCommits.sort(key=lambda x: x["timestamp"], reverse=True)
         
-        for version in versionsData:
+        for version in branchCommits:
             displayText = f"{version['display_time']} - {version['message']}"
             item = QListWidgetItem(displayText)
             item.setData(Qt.UserRole, version)
@@ -332,6 +403,73 @@ class ArtGitDocker(DockWidget):
             return
         
         self.restoreVersion(item)
+    
+    def loadBranches(self):
+        """Load available branches and set current branch"""
+        data = self.loadVersionsData()
+        self.currentBranch = data.get("current_branch", "main")
+        
+        # Update branch combo box
+        self.branchComboBox.clear()
+        self.branchComboBox.addItems(data["branches"])
+        
+        # Set current branch in combo box
+        index = self.branchComboBox.findText(self.currentBranch)
+        if index >= 0:
+            self.branchComboBox.setCurrentIndex(index)
+    
+    def onBranchChanged(self, branchName):
+        """Handle branch selection change"""
+        if branchName and branchName != self.currentBranch:
+            self.currentBranch = branchName
+            
+            # Update current branch in data
+            data = self.loadVersionsData()
+            data["current_branch"] = branchName
+            self.saveVersionsData(data)
+            
+            # Refresh history for new branch
+            self.refreshHistory()
+    
+    def createNewBranch(self):
+        """Create a new branch"""
+        branchName = self.newBranchEdit.text().strip()
+        if not branchName:
+            QMessageBox.warning(self, "Error", "Please enter a branch name.")
+            return
+        
+        # Validate branch name (simple validation)
+        if not branchName.replace("_", "").replace("-", "").isalnum():
+            QMessageBox.warning(self, "Error", "Branch name can only contain letters, numbers, underscores, and hyphens.")
+            return
+        
+        data = self.loadVersionsData()
+        
+        # Check if branch already exists
+        if branchName in data["branches"]:
+            QMessageBox.warning(self, "Error", f"Branch '{branchName}' already exists.")
+            return
+        
+        # Create new branch by copying current branch's commits
+        currentBranchCommits = data["commits"].get(self.currentBranch, [])
+        
+        # Add new branch
+        data["branches"].append(branchName)
+        data["commits"][branchName] = currentBranchCommits.copy()  # Copy commits from current branch
+        data["current_branch"] = branchName
+        
+        # Save data
+        self.saveVersionsData(data)
+        
+        # Update UI
+        self.currentBranch = branchName
+        self.loadBranches()
+        self.refreshHistory()
+        
+        # Clear input field
+        self.newBranchEdit.clear()
+        
+        QMessageBox.information(self, "Success", f"Branch '{branchName}' created successfully!")
 
 class ArtGit(Extension):
     def __init__(self, parent):
