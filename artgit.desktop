@@ -4,4 +4,4 @@ ServiceTypes=Krita/PythonPlugin
 X-KDE-Library=artgit
 X-Python-2-Compatible=false
 Name=ArtGit
-Comment=The Git of art!
+Comment=Version control system for Krita with branching and commit functionality
