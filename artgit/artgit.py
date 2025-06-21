@@ -500,6 +500,12 @@ class ArtGit(Extension):
                     docker.commitCurrentVersion()
                     break
 
-# Add the extension and docker to Krita
+# Add the extension and dockers to Krita
+Krita.instance().addExtension(ArtGit(Krita.instance()))
+Krita.instance().addDockWidgetFactory(DockWidgetFactory("artgitDocker", DockWidgetFactoryBase.DockRight, ArtGitDocker))
+
+
+
+# Add the extension and dockers to Krita
 Krita.instance().addExtension(ArtGit(Krita.instance()))
 Krita.instance().addDockWidgetFactory(DockWidgetFactory("artgitDocker", DockWidgetFactoryBase.DockRight, ArtGitDocker))
