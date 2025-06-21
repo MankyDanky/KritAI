@@ -1,6 +1,7 @@
 from krita import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
+from PyQt5.QtGui import QImage, QPainter, QBrush, QIcon
 import os
 import json
 import shutil
@@ -227,6 +228,13 @@ class ArtGitDocker(DockWidget):
         try:
             # Save current document
             doc.save()
+
+            # Create preview image without dialog
+            previewFileName = f"{versionId}_{docName}.png"
+            previewPath = os.path.join(versionsDir, previewFileName)
+            
+            # Get document thumbnail directly (no dialog)
+            self.createPreviewThumbnail(doc, previewPath)
             
             # Copy to versions directory
             shutil.copy2(docPath, versionPath)
@@ -239,6 +247,7 @@ class ArtGitDocker(DockWidget):
                 "timestamp": timestamp.isoformat(),
                 "filename": versionFileName,
                 "display_time": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "preview": previewFileName,
                 "branch": self.currentBranch
             }
             
@@ -279,6 +288,11 @@ class ArtGitDocker(DockWidget):
             displayText = f"{version['display_time']} - {version['message']}"
             item = QListWidgetItem(displayText)
             item.setData(Qt.UserRole, version)
+            # Loads preview icon
+            previewPath = os.path.join(self.getVersionsDir(), version.get("preview", ""))
+            if os.path.exists(previewPath): 
+                icon = QIcon(previewPath)
+                item.setIcon(icon)
             self.historyList.addItem(item)
     
     def openVersion(self, item):
@@ -470,6 +484,16 @@ class ArtGitDocker(DockWidget):
         self.newBranchEdit.clear()
         
         QMessageBox.information(self, "Success", f"Branch '{branchName}' created successfully!")
+
+    def createPreviewThumbnail(self, doc, previewPath):
+        """Create a thumbnail preview without showing dialog"""
+        try:
+            # Use Krita's built-in thumbnail method - no dialog
+            thumbnail = doc.thumbnail(256, 256)
+            thumbnail.save(previewPath, "PNG")
+        except Exception as e:
+            # If thumbnail fails, skip preview
+            pass
 
 class ArtGit(Extension):
     def __init__(self, parent):
