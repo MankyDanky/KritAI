@@ -164,6 +164,10 @@ class ArtGitDocker(DockWidget):
             # Save current document
             doc.save()
             
+            previewFileName = f"{versionId}_{docName}.png"
+            previewPath = os.path.join(versionsDir, previewFileName)
+            doc.exportImage(previewPath, InfoObject())
+            
             # Copy to versions directory
             shutil.copy2(docPath, versionPath)
             
@@ -174,6 +178,7 @@ class ArtGitDocker(DockWidget):
                 "message": commitMessage,
                 "timestamp": timestamp.isoformat(),
                 "filename": versionFileName,
+                "preview": previewFileName,
                 "display_time": timestamp.strftime("%Y-%m-%d %H:%M:%S")
             }
             versionsData.append(versionInfo)
@@ -208,6 +213,13 @@ class ArtGitDocker(DockWidget):
             displayText = f"{version['display_time']} - {version['message']}"
             item = QListWidgetItem(displayText)
             item.setData(Qt.UserRole, version)
+            
+            # loads preview icon
+            previewPath = os.path.join(self.getVersionsDir(), version.get("preview", ""))
+            if os.path.exists(previewPath): 
+                icon = QIcon(previewPath)
+                item.setIcon(icon)
+            
             self.historyList.addItem(item)
     
     def openVersion(self, item):
