@@ -16,6 +16,11 @@ class ArtGitDocker(DockWidget):
         mainWidget = QWidget(self)
         self.setWidget(mainWidget)
         mainWidget.setLayout(QVBoxLayout())
+
+        # Load QSS stylesheet from file
+        qss_path = os.path.join(os.path.dirname(__file__), "style.qss")
+        with open (qss_path, "r") as file:
+            mainWidget.setStyleSheet(file.read())
         
         # Title label
         titleLabel = QLabel("Version History")
