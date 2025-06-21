@@ -30,6 +30,11 @@ class ArtAIDocker(DockWidget):
         self.setWidget(mainWidget)
         layout = QVBoxLayout()
         mainWidget.setLayout(layout)
+
+        # Load QSS stylesheet from file
+        qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
+        with open (qss_path, "r") as file:
+            mainWidget.setStyleSheet(file.read())
         
         # API Key input
         layout.addWidget(QLabel("OpenAI API Key:"))
