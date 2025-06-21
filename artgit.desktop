@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=Krita/PythonPlugin
+X-KDE-Library=artgit
+X-Python-2-Compatible=false
+Name=ArtGit
+Comment=The Git of art!
