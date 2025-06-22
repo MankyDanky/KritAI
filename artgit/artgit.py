@@ -2,10 +2,13 @@ from krita import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QImage, QPainter, QBrush, QIcon
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+from PyQt5.QtCore import QUrl
 import os
 import json
 import shutil
 from datetime import datetime
+import tempfile
 
 class ArtGitDocker(DockWidget):
     def __init__(self):
@@ -95,6 +98,49 @@ class ArtGitDocker(DockWidget):
         historyLayout.addLayout(buttonLayout)
         
         mainWidget.layout().addWidget(historyGroupBox)
+        
+        # Upload section
+        uploadGroupBox = QGroupBox("Upload to Gallery")
+        uploadLayout = QVBoxLayout()
+        uploadGroupBox.setLayout(uploadLayout)
+        
+        # Upload settings
+        uploadSettingsLayout = QVBoxLayout()
+        
+        # Server URL input
+        urlLayout = QHBoxLayout()
+        urlLayout.addWidget(QLabel("Server URL:"))
+        self.serverUrlEdit = QLineEdit()
+        self.serverUrlEdit.setText("http://localhost:3000")  # Default URL
+        self.serverUrlEdit.setPlaceholderText("http://localhost:3000")
+        urlLayout.addWidget(self.serverUrlEdit)
+        uploadSettingsLayout.addLayout(urlLayout)
+        
+        # Export format selection
+        formatLayout = QHBoxLayout()
+        formatLayout.addWidget(QLabel("Export Format:"))
+        self.exportFormatCombo = QComboBox()
+        self.exportFormatCombo.addItems(["PNG", "JPEG", "TIFF"])
+        self.exportFormatCombo.setCurrentText("PNG")
+        formatLayout.addWidget(self.exportFormatCombo)
+        uploadSettingsLayout.addLayout(formatLayout)
+        
+        uploadLayout.addLayout(uploadSettingsLayout)
+        
+        # Upload button
+        self.uploadButton = QPushButton("Export & Upload Current Image")
+        self.uploadButton.clicked.connect(self.uploadCurrentImage)
+        uploadLayout.addWidget(self.uploadButton)
+        
+        # Upload status label
+        self.uploadStatusLabel = QLabel("Ready to upload")
+        self.uploadStatusLabel.setStyleSheet("color: #666; font-style: italic;")
+        uploadLayout.addWidget(self.uploadStatusLabel)
+        
+        mainWidget.layout().addWidget(uploadGroupBox)
+        
+        # Initialize network manager for uploads
+        self.networkManager = QNetworkAccessManager(self)
         
         # Initialize branch system
         self.currentBranch = "main"  # Default branch
@@ -456,6 +502,124 @@ class ArtGitDocker(DockWidget):
         self.newBranchEdit.clear()
         
         QMessageBox.information(self, "Success", f"Branch '{branchName}' created successfully!")
+
+    def uploadCurrentImage(self):
+        """Export and upload the current image to the gallery endpoint"""
+        doc = Krita.instance().activeDocument()
+        if doc is None:
+            QMessageBox.warning(self, "Error", "No active document to upload.")
+            return
+        
+        serverUrl = self.serverUrlEdit.text().strip()
+        if not serverUrl:
+            QMessageBox.warning(self, "Error", "Please enter a server URL.")
+            return
+        
+        # Ensure URL ends with /api/upload
+        if not serverUrl.endswith('/api/upload'):
+            if serverUrl.endswith('/'):
+                serverUrl += 'api/upload'
+            else:
+                serverUrl += '/api/upload'
+        
+        try:
+            self.uploadStatusLabel.setText("Exporting image...")
+            self.uploadButton.setEnabled(False)
+            
+            # Create temporary file for export
+            exportFormat = self.exportFormatCombo.currentText().lower()
+            tempDir = tempfile.mkdtemp()
+            
+            # Generate filename based on document name or timestamp
+            docName = "untitled"
+            if doc.fileName():
+                docName = os.path.splitext(os.path.basename(doc.fileName()))[0]
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{docName}_{timestamp}.{exportFormat}"
+            tempFilePath = os.path.join(tempDir, filename)
+            
+            # Export the document
+            exportSuccess = False
+            exportInfo = InfoObject()
+            
+            if exportFormat == "png":
+                exportSuccess = doc.exportImage(tempFilePath, exportInfo)
+            elif exportFormat == "jpeg":
+                exportInfo.setProperty("quality", 90)  # Set JPEG quality
+                exportSuccess = doc.exportImage(tempFilePath, exportInfo)
+            elif exportFormat == "tiff":
+                exportSuccess = doc.exportImage(tempFilePath, exportInfo)
+            
+            if not exportSuccess:
+                raise Exception("Failed to export image")
+            
+            self.uploadStatusLabel.setText("Uploading to server...")
+            
+            # Read the exported file
+            with open(tempFilePath, 'rb') as f:
+                imageData = f.read()
+            
+            # Clean up temp file
+            os.remove(tempFilePath)
+            os.rmdir(tempDir)
+            
+            # Create the HTTP request
+            request = QNetworkRequest(QUrl(serverUrl))
+            
+            # Create multipart form data
+            boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+            request.setHeader(QNetworkRequest.ContentTypeHeader, f"multipart/form-data; boundary={boundary}")
+            
+            # Build form data
+            formData = bytearray()
+            formData.extend(f"--{boundary}\r\n".encode())
+            formData.extend(f'Content-Disposition: form-data; name="image"; filename="{filename}"\r\n'.encode())
+            formData.extend(f"Content-Type: image/{exportFormat}\r\n\r\n".encode())
+            formData.extend(imageData)
+            formData.extend(f"\r\n--{boundary}--\r\n".encode())
+            
+            # Send the request
+            reply = self.networkManager.post(request, formData)
+            reply.finished.connect(lambda: self.onUploadFinished(reply, filename))
+            
+        except Exception as e:
+            self.uploadStatusLabel.setText(f"Export failed: {str(e)}")
+            self.uploadButton.setEnabled(True)
+            QMessageBox.critical(self, "Export Error", f"Failed to export image: {str(e)}")
+    
+    def onUploadFinished(self, reply, filename):
+        """Handle upload response"""
+        self.uploadButton.setEnabled(True)
+        
+        try:
+            if reply.error() == QNetworkReply.NoError:
+                response = reply.readAll().data().decode('utf-8')
+                
+                try:
+                    responseData = json.loads(response)
+                    if responseData.get('success'):
+                        self.uploadStatusLabel.setText(f"✓ Uploaded successfully: {filename}")
+                        QMessageBox.information(self, "Upload Success", 
+                                              f"Image uploaded successfully!\nFilename: {filename}")
+                    else:
+                        error = responseData.get('error', 'Unknown error')
+                        self.uploadStatusLabel.setText(f"✗ Upload failed: {error}")
+                        QMessageBox.warning(self, "Upload Failed", f"Server error: {error}")
+                except json.JSONDecodeError:
+                    self.uploadStatusLabel.setText("✓ Upload completed")
+                    QMessageBox.information(self, "Upload Success", f"Image uploaded successfully!\nFilename: {filename}")
+            else:
+                error = reply.errorString()
+                self.uploadStatusLabel.setText(f"✗ Upload failed: {error}")
+                QMessageBox.critical(self, "Upload Error", f"Network error: {error}")
+                
+        except Exception as e:
+            self.uploadStatusLabel.setText(f"✗ Upload failed: {str(e)}")
+            QMessageBox.critical(self, "Upload Error", f"Failed to process upload response: {str(e)}")
+        
+        finally:
+            reply.deleteLater()
 
     def createPreviewThumbnail(self, doc, previewPath):
         """Create a thumbnail preview without showing dialog"""
