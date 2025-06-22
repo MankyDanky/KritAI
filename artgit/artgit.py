@@ -38,9 +38,15 @@ class ArtGitDocker(DockWidget):
         # Current branch dropdown
         branchSelectionLayout = QHBoxLayout()
         branchSelectionLayout.addWidget(QLabel("Current Branch:"))
-        self.branchComboBox = QComboBox()
+        
+        self.branchComboBox = QComboBox() # Dropdown for branch selection
         self.branchComboBox.currentTextChanged.connect(self.onBranchChanged)
-        branchSelectionLayout.addWidget(self.branchComboBox)
+        
+        branchDeleteButton = QPushButton("Delete Branch") # Button to delete current branch
+        branchDeleteButton.clicked.connect(self.deleteCurrentBranch)
+        
+        branchSelectionLayout.addWidget(self.branchComboBox) # add widgets to layout
+        branchSelectionLayout.addWidget(branchDeleteButton)
         branchLayout.addLayout(branchSelectionLayout)
         
         # New branch creation
@@ -150,7 +156,8 @@ class ArtGitDocker(DockWidget):
         self.refreshHistory()
     
     def canvasChanged(self, canvas):
-        pass
+        self.loadBranches()
+        self.refreshHistory()
     
     def getVersionsDir(self):
         """Get the directory where versions are stored"""
@@ -502,6 +509,43 @@ class ArtGitDocker(DockWidget):
         self.newBranchEdit.clear()
         
         QMessageBox.information(self, "Success", f"Branch '{branchName}' created successfully!")
+    
+    def deleteCurrentBranch(self):
+        """Delete the current branch"""
+        if self.currentBranch == "main":
+            QMessageBox.warning(self, "Error", "Cannot delete the main branch.")
+            return
+        
+        reply = QMessageBox.question(self, "Delete Branch", 
+                                   f"Are you sure you want to delete the branch '{self.currentBranch}'?\nThis action cannot be undone.",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            data = self.loadVersionsData()
+            
+            # Remove branch from data
+            if self.currentBranch in data["branches"]:
+                data["branches"].remove(self.currentBranch)
+                del data["commits"][self.currentBranch]
+                
+                # Set current branch to main if deleting current branch
+                if self.currentBranch == data["current_branch"]:
+                    data["current_branch"] = "main"
+                    self.currentBranch = "main"
+                    index = self.branchComboBox.findText("main")
+                    if index >= 0:
+                        self.branchComboBox.setCurrentIndex(index)
+                
+                # Save updated data
+                self.saveVersionsData(data)
+                
+                # Refresh branches and history
+                self.loadBranches()
+                self.refreshHistory()
+                
+                QMessageBox.information(self, "Success", f"Branch '{self.currentBranch}' deleted successfully!")
+            else:
+                QMessageBox.warning(self, "Error", f"Branch '{self.currentBranch}' does not exist.")
 
     def uploadCurrentImage(self):
         """Export and upload the current image to the gallery endpoint"""
