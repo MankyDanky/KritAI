@@ -1,5 +1,7 @@
 # KritAI
 
+![kritAI thumbnail](/readme_images/kritai_thumb.png)
+
 ## Inspiration
 What began as an attempt to bring Git to the world of digital art evolved into something bigger: an AI-powered co-creator embedded right inside your canvas.
 
@@ -16,12 +18,14 @@ kritAI is a Krita plugin that fuses version control and AI assistance into your 
 
 #### 🎨 kritAI: AI art generation
 Choose from the following image generation modes to create/modify the layer that is generated on the canvas. 
+![AI art assistant demo](/readme_images/aiartassistant_demo.jpg)
 
 * **Generate** – Create a new image layer from a prompt.
 * **Vary** – Generate image variations based on the current canvas.
 * **Edit** – Paint a mask and prompt the AI to fill that region using selected layers for context.
 
 #### 🌳 ArtGit: Git for Art
+![Version History demo](/readme_images/versionhistory_demo.jpg)
 * **Committing** – Save your current canvas and its layer structure with a commit message.
 * **Branching** – Create branches to explore alternate versions or styles.
 * **Preview Version History** – Visual tree view of all commits with thumbnails, timestamps, and messages.
