@@ -1,3 +1,5 @@
+# KritAI
+
 ## Inspiration
 What began as an attempt to bring Git to the world of digital art evolved into something bigger: an AI-powered co-creator embedded right inside your canvas.
 
