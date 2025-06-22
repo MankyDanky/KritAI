@@ -1,3 +1,5 @@
+# KritAI
+
 ## Inspiration
 What initially started as a Git agent for digital art has blossomed into an AI agent that converts your sketches into a masterpiece directly onto your canvas (+ the initial Git agent). 
 
