@@ -62,7 +62,7 @@ class ArtAIDocker(DockWidget):
         # Mode selection
         layout.addWidget(QLabel("Mode:"))
         self.modeCombo = QComboBox()
-        self.modeCombo.addItems(["Generate", "Vary", "Edit"])
+        self.modeCombo.addItems(["Generate", "Vary", "Edit", "Critique"])
         self.modeCombo.currentTextChanged.connect(self.onModeChanged)
         layout.addWidget(self.modeCombo)
         
@@ -116,6 +116,27 @@ class ArtAIDocker(DockWidget):
         self.generateButton.clicked.connect(self.generateImage)
         layout.addWidget(self.generateButton)
         
+        # Critique button (hidden by default)
+        self.critiqueButton = QPushButton("Critique")
+        self.critiqueButton.clicked.connect(self.critiqueImage)
+        layout.addWidget(self.critiqueButton)
+        self.critiqueButton.hide()
+        
+        # Critique result area (hidden by default)
+        self.critiqueFrame = QFrame()
+        critiqueLayout = QVBoxLayout(self.critiqueFrame)
+        critiqueLayout.setContentsMargins(0, 0, 0, 0)
+        
+        self.critiqueLabel = QLabel("Critique:")
+        critiqueLayout.addWidget(self.critiqueLabel)
+        self.critiqueResult = QTextEdit()
+        self.critiqueResult.setReadOnly(True)
+        self.critiqueResult.setMaximumHeight(200)
+        critiqueLayout.addWidget(self.critiqueResult)
+        
+        layout.addWidget(self.critiqueFrame)
+        self.critiqueFrame.hide()  # Hidden by default
+        
         # Status
         self.statusLabel = QLabel("Ready")
         layout.addWidget(self.statusLabel)
@@ -158,17 +179,35 @@ class ArtAIDocker(DockWidget):
             self.promptEdit.hide()
             self.maskFrame.hide()
             self.layerFrame.hide()
+            self.generateButton.show()
+            self.critiqueButton.hide()
+            self.critiqueFrame.hide()
         elif mode == "Edit":
             self.promptLabel.show()
             self.promptEdit.show()
             self.maskFrame.show()
             self.layerFrame.show()
+            self.generateButton.show()
+            self.critiqueButton.hide()
+            self.critiqueFrame.hide()
             self.updateLayerList()
+        elif mode == "Critique":
+            self.promptLabel.show()
+            self.promptEdit.show()
+            self.maskFrame.hide()
+            self.layerFrame.hide()
+            self.generateButton.hide()
+            self.critiqueButton.show()
+            self.critiqueFrame.hide()  # Hide until we get a response
+            self.critiqueResult.clear()
         else:  # Generate
             self.promptLabel.show()
             self.promptEdit.show()
             self.maskFrame.hide()
             self.layerFrame.hide()
+            self.generateButton.show()
+            self.critiqueButton.hide()
+            self.critiqueFrame.hide()
         
         # Disable mask painting when switching away from Edit mode
         if mode != "Edit" and self.maskPaintingActive:
@@ -393,6 +432,48 @@ class ArtAIDocker(DockWidget):
     def onError(self, error_message):
         self.statusLabel.setText(f"Error: {error_message}")
         self.generateButton.setEnabled(True)
+    
+    def critiqueImage(self):
+        api_key = self.apiKeyEdit.text().strip()
+        prompt = self.promptEdit.toPlainText().strip()
+        
+        if not api_key:
+            QMessageBox.warning(self, "Error", "Please enter your OpenAI API key.")
+            return
+        
+        # If no prompt is provided, use default prompt
+        if not prompt:
+            prompt = "Critique this artwork"
+        
+        doc = Krita.instance().activeDocument()
+        if doc is None:
+            QMessageBox.warning(self, "Error", "No active document found.")
+            return
+        
+        image_data = self.getCurrentLayerImage(doc)
+        if not image_data:
+            QMessageBox.warning(self, "Error", "No document content found to critique.")
+            return
+        
+        self.statusLabel.setText("Getting critique...")
+        self.critiqueButton.setEnabled(False)
+        
+        self.critiqueWorker = CritiqueWorker(api_key, prompt, image_data)
+        self.critiqueWorker.finished.connect(self.onCritiqueComplete)
+        self.critiqueWorker.error.connect(self.onCritiqueError)
+        self.critiqueWorker.start()
+    
+    def onCritiqueComplete(self, critique_text):
+        self.critiqueResult.setText(critique_text)
+        self.critiqueFrame.show()  # Only show the critique frame once we have a response
+        self.statusLabel.setText("Critique complete!")
+        self.critiqueButton.setEnabled(True)
+    
+    def onCritiqueError(self, error_message):
+        self.critiqueResult.setText(f"Error: {error_message}")
+        self.critiqueFrame.show()  # Show frame even if there's an error
+        self.statusLabel.setText(f"Error: {error_message}")
+        self.critiqueButton.setEnabled(True)
 
 class DallEWorker(QThread):
     finished = pyqtSignal(bytes)
@@ -539,6 +620,90 @@ class DallEWorker(QThread):
                     self.finished.emit(image_data)
                 else:
                     self.error.emit("No image data received")
+            else:
+                # Try to get error details from response
+                try:
+                    error_data = response.read().decode('utf-8')
+                    self.error.emit(f"API Error {response.getcode()}: {error_data}")
+                except:
+                    self.error.emit(f"API Error {response.getcode()}")
+                
+        except urllib.error.HTTPError as e:
+            # Get detailed error message for HTTP errors
+            try:
+                error_data = e.read().decode('utf-8')
+                error_json = json.loads(error_data)
+                if 'error' in error_json and 'message' in error_json['error']:
+                    self.error.emit(f"HTTP {e.code}: {error_json['error']['message']}")
+                else:
+                    self.error.emit(f"HTTP {e.code}: {error_data}")
+            except:
+                self.error.emit(f"HTTP {e.code}: {str(e)}")
+        except Exception as e:
+            self.error.emit(str(e))
+
+class CritiqueWorker(QThread):
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, api_key, prompt, image_data):
+        super().__init__()
+        self.api_key = api_key
+        self.prompt = prompt
+        self.image_data = image_data
+    
+    def run(self):
+        try:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Convert image to base64
+            image_b64 = base64.b64encode(self.image_data).decode('utf-8')
+            
+            url = "https://api.openai.com/v1/chat/completions"
+            data = {
+                "model": "gpt-4o",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Please critique this artwork based on the following prompt: {self.prompt}"
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_b64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 500
+            }
+            
+            json_data = json.dumps(data).encode('utf-8')
+            request = urllib.request.Request(
+                url,
+                data=json_data,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+            )
+            
+            response = urllib.request.urlopen(request, timeout=60, context=ssl_context)
+            
+            if response.getcode() == 200:
+                response_data = response.read().decode('utf-8')
+                result = json.loads(response_data)
+                if 'choices' in result and len(result['choices']) > 0:
+                    critique_text = result['choices'][0]['message']['content']
+                    self.finished.emit(critique_text)
+                else:
+                    self.error.emit("No critique received")
             else:
                 # Try to get error details from response
                 try:
