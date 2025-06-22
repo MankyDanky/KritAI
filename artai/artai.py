@@ -347,10 +347,10 @@ class ArtAIDocker(DockWidget):
             if resized.format() != QImage.Format_ARGB32:
                 resized = resized.convertToFormat(QImage.Format_ARGB32)
             
-            # Get pixel data and swap ARGB to BGRA for Krita
+            # Get pixel data - QImage ARGB32 format is actually BGRA in memory
             pixel_data = bytearray(resized.bits().asstring(resized.byteCount()))
-            for i in range(0, len(pixel_data), 4):
-                pixel_data[i], pixel_data[i + 2] = pixel_data[i + 2], pixel_data[i]
+            # QImage ARGB32 stores as BGRA in memory, Krita expects BGRA, so no conversion needed
+            # The original swap was causing the color inversion
             
             # Set pixel data to layer
             new_layer.setPixelData(bytes(pixel_data), 0, 0, doc.width(), doc.height())
