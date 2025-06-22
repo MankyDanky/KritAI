@@ -1,31 +1,29 @@
-# KritAI
-
 ## Inspiration
-What initially started as a Git agent for digital art has blossomed into an AI agent that converts your sketches into a masterpiece directly onto your canvas (+ the initial Git agent). 
+What began as an attempt to bring Git to the world of digital art evolved into something bigger: an AI-powered co-creator embedded right inside your canvas.
 
-As artists and programmers, we've wondered if we could integrate various programming services into our art program, such as...
-- Maintaining multiple **branches** to test different rendering styles.
-- Return to various **commits**, retrieving its layer data to the canvas.
-- Receiving spontaneous art critique using **AI**.
-- Copilot for art that will draw over + improve specific areas on the canvas based on layer information and prompts.
+As artists and programmers, we often wondered—what if creative workflows had the same tooling as software development?
+- What if you could **branch** your art to explore different styles without duplicating files or layers?
+- What if you could **commit versions** of your work with thumbnails, timestamps, and layer states?
+- What if you had an **AI art copilot** that could improve your sketches directly on the canvas, guided by prompts and layer data?
+- What if you could receive **spontaneous art critique** using AI?
 
 With Krita's Python plugins, we managed to bridge this gap, bringing common developer tools to an artist's world. 
 
-
 ## What it does
-kritAI is a Krita plugin that includes two tools directly into the program's UI: Git for art and AI image generation.
+kritAI is a Krita plugin that fuses version control and AI assistance into your digital art workflow. It ships with two main components:
 
-#### kritAI:
+#### 🎨 kritAI: AI art generation
 Choose from the following image generation modes to create/modify the layer that is generated on the canvas. 
-* **Generate:** Adds a new layer onto your canvas that satisfies your prompt.
-* **Vary:** Changes canvas with image-to-image generation that satisfies your prompt. 
-* **Edit:** Select a region for the AI image generator to fill, referring to user-specified layer data and a prompt as context.
 
-#### ArtGit:
-* **Committing:** With a commit message, save the current canvas with its layer information locally.
-* **Branches:** Stick with `main` or create a new branch to store commits.
-* **Preview Version History:** Version history of the currently selected branch will show a thumbnail of the commit, the commit message, and the time of the commit. 
-* **Upload to Server:** Upload/view art built with this plugin!
+* **Generate** – Create a new image layer from a prompt.
+* **Vary** – Generate image variations based on the current canvas.
+* **Edit** – Paint a mask and prompt the AI to fill that region using selected layers for context.
+
+#### 🌳 ArtGit: Git for Art
+* **Committing** – Save your current canvas and its layer structure with a commit message.
+* **Branching** – Create branches to explore alternate versions or styles.
+* **Preview Version History** – Visual tree view of all commits with thumbnails, timestamps, and messages.
+* **Server Upload** – Upload your art, view art created by other users, and commit tree to the cloud!
 
 ## How we built it
 - Python to develop Krita plugins
@@ -45,3 +43,6 @@ Choose from the following image generation modes to create/modify the layer that
 
 ## What's next for kritAI
 - Uploading commit history alongside Krita files to DB so others can "clone" both the `.kra` file and its commits + branches
+
+## Slides
+https://www.figma.com/proto/jco5lfVMJ4WJqM8iOLsyWr/SpurHacks2025?node-id=1-575&page-id=0%3A1&scaling=fit
