@@ -163,7 +163,7 @@ class ArtGitDocker(DockWidget):
         return data
 
     def canvasChanged(self, canvas):
-        pass
+        self.refreshHistory()
 
     def restoreTreeVersion(self, item, _col):
         version = item.data(0, Qt.UserRole)
