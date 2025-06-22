@@ -2,10 +2,13 @@ from krita import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QImage, QPainter, QBrush, QIcon
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import os
 import json
 import shutil
 import uuid
+import tempfile
+import mimetypes
 from datetime import datetime
 from .graph_view import CommitGraphView, GraphDialog
 
@@ -39,6 +42,9 @@ class ArtGitDocker(DockWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ArtGit Version History")
+        
+        # Initialize network manager for uploads
+        self.network_manager = None
         
         # Create main widget and layout
         mainWidget = QWidget(self)
@@ -112,6 +118,13 @@ class ArtGitDocker(DockWidget):
             mainWidget.setStyleSheet(file.read())
         
         historyLayout.addLayout(buttonLayout)
+        
+        # Upload button on its own line
+        uploadLayout = QHBoxLayout()
+        uploadBtn = QPushButton("Upload")
+        uploadBtn.clicked.connect(self.uploadCurrentFile)
+        uploadLayout.addWidget(uploadBtn)
+        historyLayout.addLayout(uploadLayout)
         
         mainWidget.layout().addWidget(historyGroupBox)
         
@@ -450,6 +463,133 @@ class ArtGitDocker(DockWidget):
 
         dlg.setAttribute(Qt.WA_DeleteOnClose)
         dlg.show()
+
+    def uploadCurrentFile(self):
+        """Export and upload the current file to the endpoint"""
+        doc = Krita.instance().activeDocument()
+        if doc is None:
+            QMessageBox.warning(self, "Error", "No active document to upload.")
+            return
+        
+        if not doc.fileName():
+            QMessageBox.warning(self, "Error", "Please save the document first before uploading.")
+            return
+        
+        try:
+            # Create a temporary file for export
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Export the document as PNG - use save method with PNG format
+            # First save current document
+            doc.save()
+            
+            # Create a copy and save as PNG
+            temp_doc = doc.clone()
+            temp_doc.flatten()
+            temp_doc.saveAs(temp_path)
+            temp_doc.close()
+            
+            # Show upload progress
+            progress = QProgressDialog("Uploading file...", "Cancel", 0, 0, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.show()
+            
+            # Create network manager if not exists
+            if self.network_manager is None:
+                self.network_manager = QNetworkAccessManager(self)
+            
+            # Prepare multipart form data
+            url = QUrl("http://localhost:3000/api/upload")
+            request = QNetworkRequest(url)
+            
+            # Read the exported file
+            with open(temp_path, 'rb') as f:
+                file_data = f.read()
+            
+            # Create multipart data manually
+            boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+            request.setHeader(QNetworkRequest.ContentTypeHeader, f"multipart/form-data; boundary={boundary}")
+            
+            # Get original filename or use a default
+            original_name = os.path.basename(doc.fileName())
+            filename = os.path.splitext(original_name)[0] + '.png'
+            
+            # Build multipart form data
+            form_data = []
+            form_data.append(f"--{boundary}".encode())
+            form_data.append(f'Content-Disposition: form-data; name="image"; filename="{filename}"'.encode())
+            form_data.append(b'Content-Type: image/png')
+            form_data.append(b'')
+            form_data.append(file_data)
+            form_data.append(f"--{boundary}--".encode())
+            
+            body = b'\r\n'.join(form_data)
+            
+            # Send the request
+            reply = self.network_manager.post(request, body)
+            
+            # Handle response
+            def on_upload_finished():
+                progress.close()
+                
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                
+                if reply.error() == QNetworkReply.NoError:
+                    response_data = reply.readAll().data()
+                    try:
+                        response_json = json.loads(response_data.decode('utf-8'))
+                        QMessageBox.information(
+                            self, "Upload Success",
+                            f"File uploaded successfully!\n"
+                            f"File ID: {response_json.get('fileId', 'N/A')}\n"
+                            f"Filename: {response_json.get('filename', filename)}"
+                        )
+                    except json.JSONDecodeError:
+                        QMessageBox.information(
+                            self, "Upload Success",
+                            "File uploaded successfully!"
+                        )
+                else:
+                    error_msg = reply.errorString()
+                    QMessageBox.critical(
+                        self, "Upload Error",
+                        f"Failed to upload file: {error_msg}"
+                    )
+                
+                reply.deleteLater()
+            
+            def on_upload_progress(bytes_sent, bytes_total):
+                if bytes_total > 0:
+                    progress.setMaximum(bytes_total)
+                    progress.setValue(bytes_sent)
+            
+            # Connect signals
+            reply.finished.connect(on_upload_finished)
+            reply.uploadProgress.connect(on_upload_progress)
+            
+            # Handle cancel
+            def cancel_upload():
+                reply.abort()
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+            
+            progress.canceled.connect(cancel_upload)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export/upload file: {str(e)}")
+            # Clean up temp file if it exists
+            try:
+                if 'temp_path' in locals():
+                    os.unlink(temp_path)
+            except:
+                pass
 
 
 class ArtGit(Extension):
