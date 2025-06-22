@@ -75,6 +75,31 @@ class ArtAIDocker(DockWidget):
         layout.addWidget(self.maskFrame)
         self.maskFrame.hide()  # Hidden by default
         
+        # Layer visibility controls (for Edit mode)
+        self.layerFrame = QFrame()
+        layerLayout = QVBoxLayout(self.layerFrame)
+        layerLayout.setContentsMargins(0, 0, 0, 0)
+        
+        layerLayout.addWidget(QLabel("Layers to include:"))
+        
+        # Refresh button for layer list
+        refreshBtn = QPushButton("Refresh Layers")
+        refreshBtn.clicked.connect(self.updateLayerList)
+        layerLayout.addWidget(refreshBtn)
+        
+        self.layerScrollArea = QScrollArea()
+        self.layerScrollArea.setMaximumHeight(150)
+        self.layerScrollArea.setWidgetResizable(True)
+        self.layerWidget = QWidget()
+        self.layerLayout = QVBoxLayout(self.layerWidget)
+        self.layerScrollArea.setWidget(self.layerWidget)
+        layerLayout.addWidget(self.layerScrollArea)
+        
+        layout.addWidget(self.layerFrame)
+        self.layerFrame.hide()  # Hidden by default
+        
+        self.layerCheckboxes = []
+        
         # Generate button
         self.generateButton = QPushButton("Generate")
         self.generateButton.clicked.connect(self.generateImage)
@@ -89,19 +114,50 @@ class ArtAIDocker(DockWidget):
         self.maskLayer = None
         self.originalTool = None
     
+    def updateLayerList(self):
+        """Update the layer checkbox list"""
+        # Clear existing checkboxes
+        for checkbox in self.layerCheckboxes:
+            checkbox.setParent(None)
+        self.layerCheckboxes.clear()
+        
+        doc = Krita.instance().activeDocument()
+        if not doc:
+            return
+        
+        # Get all layers (excluding mask layer)
+        def addLayersRecursive(node, indent=0):
+            if node.type() == "paintlayer" and node != self.maskLayer:
+                checkbox = QCheckBox("  " * indent + node.name())
+                checkbox.setChecked(node.visible())
+                checkbox.layer = node
+                self.layerCheckboxes.append(checkbox)
+                self.layerLayout.addWidget(checkbox)
+            
+            # Add child nodes
+            for child in node.childNodes():
+                addLayersRecursive(child, indent + 1)
+        
+        # Start from root node
+        addLayersRecursive(doc.rootNode())
+
     def onModeChanged(self, mode):
         if mode == "Vary":
             self.promptLabel.hide()
             self.promptEdit.hide()
             self.maskFrame.hide()
+            self.layerFrame.hide()
         elif mode == "Edit":
             self.promptLabel.show()
             self.promptEdit.show()
             self.maskFrame.show()
+            self.layerFrame.show()
+            self.updateLayerList()
         else:  # Generate
             self.promptLabel.show()
             self.promptEdit.show()
             self.maskFrame.hide()
+            self.layerFrame.hide()
         
         # Disable mask painting when switching away from Edit mode
         if mode != "Edit" and self.maskPaintingActive:
@@ -184,10 +240,21 @@ class ArtAIDocker(DockWidget):
         return png_data
 
     def getCurrentLayerImage(self, doc):
-        """Export the entire document (all visible layers except mask) as PNG image data"""
+        """Export selected layers (based on checkboxes) as PNG image data"""
         # Create temporary file for export
         temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         temp_file.close()
+        
+        # Store original visibility states using layer names
+        original_states = []
+        
+        # If we're in Edit mode, use checkbox states
+        if self.modeCombo.currentText() == "Edit":
+            # Set layer visibility based on checkboxes
+            for checkbox in self.layerCheckboxes:
+                layer = checkbox.layer
+                original_states.append((layer, layer.visible()))
+                layer.setVisible(checkbox.isChecked())
         
         # Hide mask layer if it exists before export
         mask_was_visible = False
@@ -195,8 +262,12 @@ class ArtAIDocker(DockWidget):
             mask_was_visible = self.maskLayer.visible()
             self.maskLayer.setVisible(False)
         
-        # Export the document as PNG (without mask layer)
+        # Export the document as PNG
         doc.exportImage(temp_file.name, InfoObject())
+        
+        # Restore original layer visibility states
+        for layer, original_state in original_states:
+            layer.setVisible(original_state)
         
         # Restore mask layer visibility
         if self.maskLayer:
