@@ -66,17 +66,6 @@ class ArtAIDocker(DockWidget):
         self.maskToggle.clicked.connect(self.onMaskToggle)
         maskLayout.addWidget(self.maskToggle)
         
-        maskLayout.addWidget(QLabel("Size:"))
-        self.maskSizeSlider = QSlider(Qt.Horizontal)
-        self.maskSizeSlider.setMinimum(5)
-        self.maskSizeSlider.setMaximum(100)
-        self.maskSizeSlider.setValue(20)
-        maskLayout.addWidget(self.maskSizeSlider)
-        
-        self.maskSizeLabel = QLabel("20")
-        self.maskSizeSlider.valueChanged.connect(lambda v: self.maskSizeLabel.setText(str(v)))
-        maskLayout.addWidget(self.maskSizeLabel)
-        
         layout.addWidget(self.maskFrame)
         self.maskFrame.hide()  # Hidden by default
         
