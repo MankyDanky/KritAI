@@ -1,4 +1,5 @@
 from krita import *
+from krita import Krita
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QImage, QColor
@@ -14,9 +15,25 @@ import os
 class ArtAI(Extension):
     def __init__(self, parent):
         super().__init__(parent)
+        # Prepare path for stylesheet
+        self.qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
 
     def setup(self):
-        pass
+        self.apply_global_style()
+
+    def apply_global_style(self):
+        if not os.path.exists(self.qss_path):
+            print(f"Style sheet not found: {self.qss_path}")
+            return
+        with open(self.qss_path, "r") as file:
+            style = file.read()
+
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(style)
+            print("✅ Applied global stylesheet to entire Krita UI")
+        else:
+            print("⚠️ QApplication instance not found")
 
     def createActions(self, window):
         pass
