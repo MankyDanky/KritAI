@@ -1,7 +1,7 @@
 from krita import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
-from PyQt5.QtGui import QImage
+from PyQt5.QtGui import QImage, QColor
 from PyQt5.QtCore import QRect
 import json
 import ssl
@@ -45,7 +45,7 @@ class ArtAIDocker(DockWidget):
         # Mode selection
         layout.addWidget(QLabel("Mode:"))
         self.modeCombo = QComboBox()
-        self.modeCombo.addItems(["Generate", "Vary"])
+        self.modeCombo.addItems(["Generate", "Vary", "Edit"])
         self.modeCombo.currentTextChanged.connect(self.onModeChanged)
         layout.addWidget(self.modeCombo)
         
@@ -56,6 +56,30 @@ class ArtAIDocker(DockWidget):
         self.promptEdit.setMaximumHeight(100)
         layout.addWidget(self.promptEdit)
         
+        # Mask painting controls (for Edit mode)
+        self.maskFrame = QFrame()
+        maskLayout = QHBoxLayout(self.maskFrame)
+        maskLayout.setContentsMargins(0, 0, 0, 0)
+        
+        self.maskToggle = QPushButton("Enable Mask Painting")
+        self.maskToggle.setCheckable(True)
+        self.maskToggle.clicked.connect(self.onMaskToggle)
+        maskLayout.addWidget(self.maskToggle)
+        
+        maskLayout.addWidget(QLabel("Size:"))
+        self.maskSizeSlider = QSlider(Qt.Horizontal)
+        self.maskSizeSlider.setMinimum(5)
+        self.maskSizeSlider.setMaximum(100)
+        self.maskSizeSlider.setValue(20)
+        maskLayout.addWidget(self.maskSizeSlider)
+        
+        self.maskSizeLabel = QLabel("20")
+        self.maskSizeSlider.valueChanged.connect(lambda v: self.maskSizeLabel.setText(str(v)))
+        maskLayout.addWidget(self.maskSizeLabel)
+        
+        layout.addWidget(self.maskFrame)
+        self.maskFrame.hide()  # Hidden by default
+        
         # Generate button
         self.generateButton = QPushButton("Generate")
         self.generateButton.clicked.connect(self.generateImage)
@@ -64,26 +88,124 @@ class ArtAIDocker(DockWidget):
         # Status
         self.statusLabel = QLabel("Ready")
         layout.addWidget(self.statusLabel)
+        
+        # Mask painting state
+        self.maskPaintingActive = False
+        self.maskLayer = None
+        self.originalTool = None
     
     def onModeChanged(self, mode):
         if mode == "Vary":
             self.promptLabel.hide()
             self.promptEdit.hide()
-        else:
+            self.maskFrame.hide()
+        elif mode == "Edit":
             self.promptLabel.show()
             self.promptEdit.show()
+            self.maskFrame.show()
+        else:  # Generate
+            self.promptLabel.show()
+            self.promptEdit.show()
+            self.maskFrame.hide()
+        
+        # Disable mask painting when switching away from Edit mode
+        if mode != "Edit" and self.maskPaintingActive:
+            self.disableMaskPainting()
+    
+    def onMaskToggle(self):
+        if self.maskToggle.isChecked():
+            self.enableMaskPainting()
+        else:
+            self.disableMaskPainting()
+    
+    def enableMaskPainting(self):
+        doc = Krita.instance().activeDocument()
+        if not doc:
+            self.maskToggle.setChecked(False)
+            return
+        
+        self.maskPaintingActive = True
+        self.maskToggle.setText("Disable Mask Painting")
+        
+        # Create or find mask layer
+        self.maskLayer = doc.createNode("AI_Edit_Mask", "paintlayer")
+        doc.rootNode().addChildNode(self.maskLayer, None)
+        doc.setActiveNode(self.maskLayer)
+        
+        self.statusLabel.setText("Mask painting enabled - Paint red areas to edit, then generate")
+    
+    def disableMaskPainting(self):
+        self.maskPaintingActive = False
+        self.maskToggle.setChecked(False)
+        self.maskToggle.setText("Enable Mask Painting")
+        self.statusLabel.setText("Ready")
     
     def canvasChanged(self, canvas):
         pass
     
+    def getMaskImage(self, doc):
+        """Create a proper mask: transparent where user painted, opaque everywhere else"""
+        if not self.maskLayer:
+            return None
+        
+        # Get document dimensions
+        w, h = doc.width(), doc.height()
+        
+        # Get mask layer pixel data
+        pixel_data = self.maskLayer.pixelData(0, 0, w, h)
+        
+        # Create mask array - start with all opaque white (preserve everything)
+        mask_array = bytearray(w * h * 4)
+        for i in range(0, len(mask_array), 4):
+            mask_array[i:i+4] = [255, 255, 255, 255]  # White opaque
+        
+        # Convert BGRA pixel data and mark painted areas as transparent
+        pixel_array = bytearray(pixel_data)
+        
+        for i in range(0, len(pixel_array), 4):
+            # Get BGRA values from mask layer
+            b, g, r, a = pixel_array[i:i+4]
+            
+            # If there's any visible paint (any color with opacity), make it transparent in mask
+            if a > 10:  # Any visible paint on mask layer
+                # Make this area transparent (DALL-E will edit here)
+                mask_array[i:i+4] = [0, 0, 0, 0]
+        
+        # Create temporary file and save mask
+        temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        temp_file.close()
+        
+        # Create QImage from mask data and save
+        qimage = QImage(bytes(mask_array), w, h, QImage.Format_ARGB32)
+        qimage.save(temp_file.name, "PNG")
+        
+        # Read the PNG data back
+        with open(temp_file.name, 'rb') as f:
+            png_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_file.name)
+        
+        return png_data
+
     def getCurrentLayerImage(self, doc):
-        """Export the entire document (all visible layers) as PNG image data"""
+        """Export the entire document (all visible layers except mask) as PNG image data"""
         # Create temporary file for export
         temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         temp_file.close()
         
-        # Export the document as PNG (includes all visible layers)
+        # Hide mask layer if it exists before export
+        mask_was_visible = False
+        if self.maskLayer:
+            mask_was_visible = self.maskLayer.visible()
+            self.maskLayer.setVisible(False)
+        
+        # Export the document as PNG (without mask layer)
         doc.exportImage(temp_file.name, InfoObject())
+        
+        # Restore mask layer visibility
+        if self.maskLayer:
+            self.maskLayer.setVisible(mask_was_visible)
         
         # Read the PNG data back
         with open(temp_file.name, 'rb') as f:
@@ -113,17 +235,32 @@ class ArtAIDocker(DockWidget):
                 QMessageBox.warning(self, "Error", "Please enter a prompt.")
                 return
             image_data = None
-        else:  # Vary mode
+            mask_data = None
+        elif mode == "Vary":
             image_data = self.getCurrentLayerImage(doc)
             if not image_data:
                 QMessageBox.warning(self, "Error", "No document content found to vary.")
                 return
             prompt = None
+            mask_data = None
+        else:  # Edit mode
+            prompt = self.promptEdit.toPlainText().strip()
+            if not prompt:
+                QMessageBox.warning(self, "Error", "Please enter a prompt for editing.")
+                return
+            image_data = self.getCurrentLayerImage(doc)
+            if not image_data:
+                QMessageBox.warning(self, "Error", "No document content found to edit.")
+                return
+            mask_data = self.getMaskImage(doc)
+            if not mask_data:
+                QMessageBox.warning(self, "Error", "No mask found. Please paint mask areas first.")
+                return
         
         self.statusLabel.setText("Generating...")
         self.generateButton.setEnabled(False)
         
-        self.worker = DallEWorker(api_key, prompt, doc.width(), doc.height(), image_data)
+        self.worker = DallEWorker(api_key, prompt, doc.width(), doc.height(), image_data, mask_data)
         self.worker.finished.connect(self.onComplete)
         self.worker.error.connect(self.onError)
         self.worker.start()
@@ -142,7 +279,9 @@ class ArtAIDocker(DockWidget):
             resized = qimage.scaled(doc.width(), doc.height(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
             
             # Create new layer
-            new_layer = doc.createNode("AI Generated", "paintlayer")
+            mode = self.modeCombo.currentText()
+            layer_name = f"AI {mode}"
+            new_layer = doc.createNode(layer_name, "paintlayer")
             
             # Convert to ARGB format
             if resized.format() != QImage.Format_ARGB32:
@@ -160,6 +299,13 @@ class ArtAIDocker(DockWidget):
             doc.rootNode().addChildNode(new_layer, None)
             doc.refreshProjection()
             
+            # Clean up mask layer if this was an edit operation
+            if mode == "Edit" and self.maskLayer:
+                doc.rootNode().removeChildNode(self.maskLayer)
+                self.maskLayer = None
+                if self.maskPaintingActive:
+                    self.disableMaskPainting()
+            
             self.statusLabel.setText("Complete!")
             
         except Exception as e:
@@ -175,13 +321,14 @@ class DallEWorker(QThread):
     finished = pyqtSignal(bytes)
     error = pyqtSignal(str)
     
-    def __init__(self, api_key, prompt, width, height, image_data=None):
+    def __init__(self, api_key, prompt, width, height, image_data=None, mask_data=None):
         super().__init__()
         self.api_key = api_key
         self.prompt = prompt
         self.width = width
         self.height = height
         self.image_data = image_data
+        self.mask_data = mask_data
         # Use 1024x1024 for DALL-E
         self.size = "1024x1024"
     
@@ -191,10 +338,66 @@ class DallEWorker(QThread):
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
             
-            if self.image_data:  # Vary mode
+            if self.mask_data:  # Edit mode
+                url = "https://api.openai.com/v1/images/edits"
+                
+                # Create multipart form data for editing
+                boundary = '----WebKitFormBoundary' + str(id(self))
+                body = []
+                
+                # Add image
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="image"; filename="image.png"')
+                body.append('Content-Type: image/png')
+                body.append('')
+                body.append(self.image_data.decode('latin1'))
+                
+                # Add mask
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="mask"; filename="mask.png"')
+                body.append('Content-Type: image/png')
+                body.append('')
+                body.append(self.mask_data.decode('latin1'))
+                
+                # Add prompt
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="prompt"')
+                body.append('')
+                body.append(self.prompt)
+                
+                # Add other parameters
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="n"')
+                body.append('')
+                body.append('1')
+                
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="size"')
+                body.append('')
+                body.append(self.size)
+                
+                body.append(f'--{boundary}')
+                body.append('Content-Disposition: form-data; name="response_format"')
+                body.append('')
+                body.append('b64_json')
+                
+                body.append(f'--{boundary}--')
+                
+                form_data = '\r\n'.join(body).encode('latin1')
+                
+                request = urllib.request.Request(
+                    url,
+                    data=form_data,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": f"multipart/form-data; boundary={boundary}"
+                    }
+                )
+                
+            elif self.image_data:  # Vary mode
                 url = "https://api.openai.com/v1/images/variations"
                 
-                # Create multipart form data
+                # Create multipart form data for variations
                 boundary = '----formdata-boundary-' + str(id(self))
                 body = []
                 body.append(f'--{boundary}'.encode())
@@ -226,6 +429,7 @@ class DallEWorker(QThread):
                         "Content-Type": f"multipart/form-data; boundary={boundary}"
                     }
                 )
+                
             else:  # Generate mode
                 url = "https://api.openai.com/v1/images/generations"
                 data = {
@@ -259,8 +463,24 @@ class DallEWorker(QThread):
                 else:
                     self.error.emit("No image data received")
             else:
-                self.error.emit(f"API Error {response.getcode()}")
+                # Try to get error details from response
+                try:
+                    error_data = response.read().decode('utf-8')
+                    self.error.emit(f"API Error {response.getcode()}: {error_data}")
+                except:
+                    self.error.emit(f"API Error {response.getcode()}")
                 
+        except urllib.error.HTTPError as e:
+            # Get detailed error message for HTTP errors
+            try:
+                error_data = e.read().decode('utf-8')
+                error_json = json.loads(error_data)
+                if 'error' in error_json and 'message' in error_json['error']:
+                    self.error.emit(f"HTTP {e.code}: {error_json['error']['message']}")
+                else:
+                    self.error.emit(f"HTTP {e.code}: {error_data}")
+            except:
+                self.error.emit(f"HTTP {e.code}: {str(e)}")
         except Exception as e:
             self.error.emit(str(e))
 
