@@ -9,6 +9,32 @@ import uuid
 from datetime import datetime
 from .graph_view import CommitGraphView, GraphDialog
 
+class ArtAI(Extension):
+    def __init__(self, parent):
+        super().__init__(parent)
+        # Prepare path for stylesheet
+        self.qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
+
+    def setup(self):
+        self.apply_global_style()
+
+    def apply_global_style(self):
+        if not os.path.exists(self.qss_path):
+            print(f"Style sheet not found: {self.qss_path}")
+            return
+        with open(self.qss_path, "r") as file:
+            style = file.read()
+
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(style)
+            print("✅ Applied global stylesheet to entire Krita UI")
+        else:
+            print("⚠️ QApplication instance not found")
+
+    def createActions(self, window):
+        pass
+
 class ArtGitDocker(DockWidget):
     def __init__(self):
         super().__init__()
@@ -80,6 +106,10 @@ class ArtGitDocker(DockWidget):
         graphBtn = QPushButton("Show Graph")
         graphBtn.clicked.connect(self.showGraphWindow)
         buttonLayout.addWidget(graphBtn)
+
+        qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "style.qss")
+        with open (qss_path, "r") as file:
+            mainWidget.setStyleSheet(file.read())
         
         historyLayout.addLayout(buttonLayout)
         
@@ -87,7 +117,7 @@ class ArtGitDocker(DockWidget):
         
         self.currentHead = self.loadVersionsData()["current_head"]
         
-        # Load history on startup
+        # Load history on startup...
         self.refreshHistory()
     
     def gotoParent(self):

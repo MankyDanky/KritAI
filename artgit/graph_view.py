@@ -56,50 +56,57 @@ class NodeItem(QGraphicsEllipseItem):
                                       duration=150,
                                       valueChanged=lambda v: self.setScale(v))
         # popup graphics group (hidden by default)
+        self.anim.setEasingCurve(QEasingCurve.OutExpo)
         self._makePopup()
 
     # ------------------------------------------------------------------ popup
     def _makePopup(self):
         from PyQt5.QtGui import QPixmap
+
+        # 1) create group, parent it, raise it
         self.popup = QGraphicsItemGroup()
-        self.popup.setParentItem(self)
-        self.popup.setTransformOriginPoint(self.POP_W, self.POP_H)  # bottom-right
-        self.popup.setScale(0.0)            # collapsed
+        self.popup.setParentItem(self)          # <- correct name
+        self.popup.setZValue(10)                # draw above nodes/edges
 
-        # preview image
-        pix = QPixmap(self.commit.get("preview_abs", "")).scaled(
-            self.POP_W, self.POP_H, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # 2) move group so that IMAGE bottom-right sits on the node centre
+        self.popup.setPos(-self.POP_W, -self.POP_H)
 
+        # 3) scale around that same bottom-right pivot
+        self.popup.setTransformOriginPoint(self.POP_W, self.POP_H)
+        self.popup.setScale(0.0)                # start collapsed
+
+        # ---------- preview image ----------
         pix_path = self.commit.get("preview_abs", "")
-        pix      = QPixmap(pix_path)
-        if pix.isNull():
-            pix = QPixmap(self.POP_W, self.POP_H)
-            pix.fill(QColor(40, 40, 40))
-        pix = pix.scaled(self.POP_W, self.POP_H,
-                        Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm = QPixmap(pix_path)
+        if pm.isNull():                         # fallback placeholder
+            pm = QPixmap(self.POP_W, self.POP_H)
+            pm.fill(QColor(40, 40, 40))
+        pm = pm.scaled(self.POP_W, self.POP_H,
+                       Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
-        img_item = QGraphicsPixmapItem(pix, self.popup)
+        QGraphicsPixmapItem(pm, self.popup)     # at (0,0) inside group
 
-        # message text (ellipsis)
+        # ---------- commit message (ellipsis) ----------
         msg = QGraphicsTextItem(self.popup)
         msg.setPlainText(self.commit["message"])
         msg.setDefaultTextColor(Qt.white)
-        f = QFont("Noto Sans", 9); msg.setFont(f)
-        msg.setTextWidth(self.POP_W)
-        msg.setPos(0, self.POP_H + 2)
+        msg.setFont(QFont("Noto Sans", 9))
+        msg.setTextWidth(self.POP_W)            # enables elide
+        msg.setPos(0, self.POP_H + 2)           # just below image
 
-        # commit hash
+        # ---------- short hash ----------
         hash_item = QGraphicsSimpleTextItem(self.commit["id"][:8], self.popup)
         hash_item.setBrush(QColor(180, 180, 180))
         hash_item.setFont(QFont("Noto Sans", 8))
         hash_item.setPos(0, self.POP_H + 20)
 
-        # fade/scale animation
+        # ---------- scale / fade animation ----------
         self.popAnim = QVariantAnimation(startValue=0.0, endValue=1.0,
                                          duration=250,
                                          valueChanged=self._popScale)
-        self.popAnim.setEasingCurve(QEasingCurve.OutCubic)
+        self.popAnim.setEasingCurve(QEasingCurve.OutExpo)
         self.popup.hide()
+
 
     def _popScale(self, v):
         self.popup.setScale(v)
@@ -168,6 +175,7 @@ class CommitGraphView(QGraphicsView):
                 a, b = self._nodes[c["id"]], self._nodes[p]
                 line = self.scene.addLine(QLineF(a.pos(), b.pos()),
                                           QPen(Qt.gray, 2))
+                line.setZValue(-10) 
                 self._edges.append((a, b, line))
 
         self.setSceneRect(self.scene.itemsBoundingRect())
