@@ -91,3 +91,19 @@ QGroupBox, QListWidget, QLineEdit, QComboBox {
 QListWidget::item:selected:!active {
     border-left: 4px solid #7b5cf5;
 }
+
+QTextEdit {
+    background-color: #1c1c2f;
+    color: #ffffff;
+    border: 1px solid #5e5ea8;
+    border-radius: 7px;
+    padding: 10px;
+    font-size: 13px;
+    outline: none;
+    box-shadow: 0 0 8px rgba(123, 92, 245, 0.3);
+}
+
+QTextEdit:focus {
+    border: 1px solid #9a84ff;
+    box-shadow: 0 0 12px rgba(154, 132, 255, 0.6);
+}
